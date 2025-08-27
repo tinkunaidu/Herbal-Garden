@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Virtual Herbal Garden • Gemini‑powered</title>
+  <!--
+    🔐 Setup (important)
+    1) Replace GEMINI_API_KEY below with your key from Google AI Studio.
+       Exposing keys in frontend is NOT secure. For production, put the key
+       behind a tiny proxy (e.g., Cloudflare Worker, Vercel, or your backend)
+       and call that instead.
+
+    Example Cloudflare Worker proxy (very small):
+
+    export default {
+      async fetch(req, env) {
+        const url = new URL(req.url)
+        if (url.pathname !== '/herb') return new Response('Not found', { status: 404 })
+        const body = await req.json()
+        const r = await fetch(
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + env.GEMINI_API_KEY,
+          { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }
+        )
+        return new Response(r.body, r)
+      }
+    }
+
+    Then set GEMINI_PROXY_URL to your worker URL and DO NOT ship your real key in the HTML.
+  -->
+  <style>
+    :root{
+      --bg:#0b1d16; --card:#0f2a20; --ink:#e7fff5; --muted:#b3d7ca; --accent:#2fd07b; --accent-2:#1aa564;
+      --danger:#ff7a7a; --ring:0 0 0 3px rgba(47,208,123,.25);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial; background:radial-gradient(1200px 600px at 20% -10%, #133526 0, transparent 60%), var(--bg); color:var(--ink)}
+
+    header{position:sticky; top:0; z-index:10; backdrop-filter:saturate(1.2) blur(6px); background:linear-gradient(180deg, rgba(11,29,22,.85), rgba(11,29,22,.55)); border-bottom:1px solid #1a3a2e}
+    .bar{display:flex; align-items:center; gap:12px; padding:14px clamp(16px,5vw,48px)}
+    h1{margin:0; font-size:clamp(18px,3vw,26px)}
+    .tag{padding:4px 8px; border-radius:999px; background:#0d3828; border:1px solid #1a4a37; color:var(--muted); font-size:12px}
+
+    .search{display:flex; gap:10px; flex:1}
+    .search input{flex:1; border-radius:12px; border:1px solid #204b3a; background:#0d2b22; color:var(--ink); padding:12px 14px; outline:none}
+    .search input:focus{box-shadow:var(--ring); border-color:#2d6c54}
+    .btn{appearance:none; border:0; border-radius:12px; padding:12px 14px; background:var(--accent); color:#052216; font-weight:700; cursor:pointer}
+    .btn.secondary{background:#154332; color:var(--muted); font-weight:600}
+    .btn:hover{filter:brightness(1.05)}
+
+    main{display:grid; grid-template-columns: 1.1fr .95fr; gap:20px; padding:20px clamp(16px,5vw,48px); align-items:start}
+    @media (max-width: 980px){ main{grid-template-columns:1fr} }
+
+    .grid{display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:14px}
+    .card{background:var(--card); border:1px solid #1b4030; border-radius:16px; overflow:hidden; cursor:pointer; transition:.2s transform; box-shadow:0 8px 20px rgba(0,0,0,.25)}
+    .card:hover{transform:translateY(-2px)}
+    .img{aspect-ratio: 4/3; background:#123728; display:grid; place-items:center}
+    .img img{width:100%; height:100%; object-fit:cover}
+    .meta{padding:10px 12px}
+    .title{font-weight:800}
+    .pill{font-size:12px; color:var(--muted)}
+
+    .panel{position:sticky; top:84px; background:linear-gradient(180deg, #0e2b21, #0a1f18); border:1px solid #1a3a2e; border-radius:18px; padding:16px; box-shadow:0 10px 30px rgba(0,0,0,.3)}
+    .panel h2{margin:0 0 6px}
+    .panel .sub{color:var(--muted); margin:0 0 12px}
+    .ai{background:#0d251d; border:1px dashed #255844; border-radius:14px; padding:12px; min-height:160px; white-space:pre-wrap}
+    .loading{color:var(--muted)}
+    .err{color:var(--danger)}
+
+    .chips{display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 4px}
+    .chip{border:1px solid #204b3a; background:#0f2a20; border-radius:999px; padding:6px 10px; font-size:12px}
+    footer{padding:18px; text-align:center; color:var(--muted)}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="bar">
+      <h1>🌿 Virtual Herbal Garden</h1>
+      <span class="tag">Gemini‑powered</span>
+      <div class="search">
+        <input id="q" placeholder="Search herb (e.g., Tulsi, Neem, Aloe)..." />
+        <button class="btn" id="searchBtn">Search</button>
+        <button class="btn secondary" id="clearBtn">Clear</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Herb Gallery -->
+    <section>
+      <div class="grid" id="grid"></div>
+    </section>
+
+    <!-- AI Panel -->
+    <aside class="panel">
+      <h2 id="panelTitle">Herb details</h2>
+      <p class="sub" id="panelSub">Click a card to fetch benefits, uses, precautions, and quick tips.</p>
+      <div class="chips" id="chips"></div>
+      <div id="aiBox" class="ai loading">No herb selected yet.</div>
+    </aside>
+  </main>
+
+  <footer>Built with ❤ using HTML, CSS, JS and the Gemini API.</footer>
+
+  <script>
+    // ========= CONFIG =========
+    const GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"; // 🔑 Replace for a quick demo. Prefer a proxy in real apps.
+    const USE_PROXY = false;                       // set true if you wire a proxy
+    const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
+    const GEMINI_PROXY_URL = "/herb"; // your proxy path if USE_PROXY=true
+
+    // ========= DATA =========
+    const HERBS = [
+      { name: "Tulsi (Holy Basil)", latin: "Ocimum sanctum", region: "India", img: "https://images.unsplash.com/photo-1606117336326-0663f6e2e9a1?q=80&w=1200&auto=format&fit=crop" },
+      { name: "Neem", latin: "Azadirachta indica", region: "India", img: "https://images.unsplash.com/photo-1560963689-621a1f2a1b98?q=80&w=1200&auto=format&fit=crop" },
+      { name: "Aloe Vera", latin: "Aloe barbadensis miller", region: "Global", img: "https://images.unsplash.com/photo-1569598409550-55537a83a662?q=80&w=1200&auto=format&fit=crop" },
+      { name: "Mint", latin: "Mentha", region: "Global", img: "https://images.unsplash.com/photo-1615486363874-9a49f0e1b06e?q=80&w=1200&auto=format&fit=crop" },
+      { name: "Turmeric", latin: "Curcuma longa", region: "India", img: "https://images.unsplash.com/photo-1615485737651-52a5cb364aa5?q=80&w=1200&auto=format&fit=crop" },
+      { name: "Ginger", latin: "Zingiber officinale", region: "Asia", img: "https://images.unsplash.com/photo-1604908554029-476c99a45c04?q=80&w=1200&auto=format&fit=crop" },
+      { name: "Ashwagandha", latin: "Withania somnifera", region: "India", img: "https://images.unsplash.com/photo-1615487008471-b40f9ab054b2?q=80&w=1200&auto=format&fit=crop" },
+      { name: "Chamomile", latin: "Matricaria chamomilla", region: "Europe", img: "https://images.unsplash.com/photo-1491002052546-bf38f186af56?q=80&w=1200&auto=format&fit=crop" },
+      { name: "Lavender", latin: "Lavandula", region: "Mediterranean", img: "https://images.unsplash.com/photo-1444858345149-8ff40887589b?q=80&w=1200&auto=format&fit=crop" },
+      { name: "Coriander", latin: "Coriandrum sativum", region: "Global", img: "https://images.unsplash.com/photo-1624981080072-9eefcaf1a0b9?q=80&w=1200&auto=format&fit=crop" }
+    ];
+
+    // ========= UI RENDER =========
+    const grid = document.getElementById('grid');
+    const aiBox = document.getElementById('aiBox');
+    const panelTitle = document.getElementById('panelTitle');
+    const panelSub = document.getElementById('panelSub');
+    const chips = document.getElementById('chips');
+
+    function renderCards(items){
+      grid.innerHTML = items.map((h,i)=> `
+        <article class="card" data-idx="${i}" title="${h.name}">
+          <div class="img"><img loading="lazy" src="${h.img}" alt="${h.name}"></div>
+          <div class="meta">
+            <div class="title">${h.name}</div>
+            <div class="pill">${h.latin} • ${h.region}</div>
+          </div>
+        </article>
+      `).join('');
+
+      [...grid.querySelectorAll('.card')].forEach(el => el.addEventListener('click', () => {
+        const idx = +el.getAttribute('data-idx');
+        selectHerb(items[idx]);
+      }));
+    }
+
+    // Initial render
+    renderCards(HERBS);
+
+    // ========= SEARCH =========
+    const qEl = document.getElementById('q');
+    document.getElementById('searchBtn').addEventListener('click', () => doSearch());
+    document.getElementById('clearBtn').addEventListener('click', () => { qEl.value = ''; renderCards(HERBS); });
+    qEl.addEventListener('keydown', e => { if(e.key === 'Enter') doSearch(); });
+
+    function doSearch(){
+      const q = qEl.value.trim().toLowerCase();
+      if (!q) return renderCards(HERBS);
+      const filtered = HERBS.filter(h => (h.name + ' ' + h.latin + ' ' + h.region).toLowerCase().includes(q));
+      renderCards(filtered);
+    }
+
+    // ========= GEMINI =========
+    async function promptFor(herb){
+      return `You are an herbal expert. Write concise, safe information as markdown bullet points for the herb "${herb.name}" (${herb.latin}).
+      Include sections: 1) Overview, 2) Traditional uses, 3) Evidence & active compounds, 4) How to use (forms & typical amounts), 5) Safety & interactions (who should avoid), 6) Fun fact. Keep it under 180 words.`
+    }
+
+    async function callGemini(prompt){
+      const body = { contents: [{ parts: [{ text: prompt }] }] };
+      const url = USE_PROXY ? GEMINI_PROXY_URL : `${GEMINI_ENDPOINT}?key=${encodeURIComponent(GEMINI_API_KEY)}`;
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) throw new Error(`Gemini error: ${res.status}`);
+      const data = await res.json();
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || 'No response';
+      return text;
+    }
+
+    function mdToHtml(md){
+      // Tiny markdown converter for bullets & basic formatting (no external libs)
+      return md
+        .replace(/^###?\s*(.*)$/gm, '<h3>$1</h3>')
+        .replace(/^\*\s+(.*)$/gm, '<li>$1</li>')
+        .replace(/^(\d+)\.\s+(.*)$/gm, '<li>$1. $2</li>')
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/(?:<li>.*<\/li>\n?)+/gs, m => `<ul>${m}</ul>`);
+    }
+
+    function setLoading(msg){ aiBox.classList.add('loading'); aiBox.classList.remove('err'); aiBox.innerText = msg; }
+    function setError(msg){ aiBox.classList.remove('loading'); aiBox.classList.add('err'); aiBox.innerText = msg; }
+
+    async function selectHerb(herb){
+      panelTitle.textContent = herb.name;
+      panelSub.textContent = `${herb.latin} • ${herb.region}`;
+      chips.innerHTML = ['Overview','Uses','Compounds','Dosage','Safety'].map(x=>`<span class="chip">${x}</span>`).join('');
+
+      const cacheKey = 'herb:' + herb.name;
+      const cached = localStorage.getItem(cacheKey);
+      if (cached){
+        aiBox.classList.remove('loading','err');
+        aiBox.innerHTML = mdToHtml(cached);
+        return;
+      }
+
+      setLoading('Fetching details from Gemini…');
+      try{
+        const text = await callGemini(await promptFor(herb));
+        localStorage.setItem(cacheKey, text);
+        aiBox.classList.remove('loading','err');
+        aiBox.innerHTML = mdToHtml(text);
+      }catch(err){
+        console.error(err);
+        setError('Could not fetch from Gemini. Check your API key or proxy.');
+      }
+    }
+  </script>
+</body>
+</html>
